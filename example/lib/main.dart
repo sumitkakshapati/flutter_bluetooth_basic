@@ -1,8 +1,9 @@
 import 'dart:convert';
-// import 'dart:typed_data';
+import 'dart:developer';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_bluetooth_basic/flutter_bluetooth_basic.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 void main() => runApp(MyApp());
 
@@ -20,7 +21,7 @@ class MyApp extends StatelessWidget {
 }
 
 class MyHomePage extends StatefulWidget {
-  MyHomePage({Key key, this.title}) : super(key: key);
+  MyHomePage({Key? key, required this.title}) : super(key: key);
   final String title;
 
   @override
@@ -31,7 +32,7 @@ class _MyHomePageState extends State<MyHomePage> {
   BluetoothManager bluetoothManager = BluetoothManager.instance;
 
   bool _connected = false;
-  BluetoothDevice _device;
+  BluetoothDevice? _device;
   String tips = 'no device connect';
 
   @override
@@ -43,43 +44,52 @@ class _MyHomePageState extends State<MyHomePage> {
 
   // Platform messages are asynchronous, so we initialize in an async method.
   Future<void> initBluetooth() async {
-    bluetoothManager.startScan(timeout: Duration(seconds: 4));
+    final permissions = await [
+      Permission.bluetoothConnect,
+      Permission.bluetoothScan,
+      Permission.location,
+    ].request();
+    if (permissions.values.every((element) => element.isGranted)) {
+      bluetoothManager.startScan(timeout: Duration(seconds: 4));
 
-    bool isConnected = await bluetoothManager.isConnected;
+      bool isConnected = await bluetoothManager.isConnected;
 
-    bluetoothManager.state.listen((state) {
-      print('cur device status: $state');
+      bluetoothManager.state.listen((state) {
+        print('cur device status: $state');
 
-      switch (state) {
-        case BluetoothManager.CONNECTED:
-          setState(() {
-            _connected = true;
-            tips = 'connect success';
-          });
-          break;
-        case BluetoothManager.DISCONNECTED:
-          setState(() {
-            _connected = false;
-            tips = 'disconnect success';
-          });
-          break;
-        default:
-          break;
-      }
-    });
-
-    if (!mounted) return;
-
-    if (isConnected) {
-      setState(() {
-        _connected = true;
+        switch (state) {
+          case BluetoothManager.CONNECTED:
+            setState(() {
+              _connected = true;
+              tips = 'connect success';
+            });
+            break;
+          case BluetoothManager.DISCONNECTED:
+            setState(() {
+              _connected = false;
+              tips = 'disconnect success';
+            });
+            break;
+          default:
+            break;
+        }
       });
+
+      if (!mounted) return;
+
+      if (isConnected) {
+        setState(() {
+          _connected = true;
+        });
+      }
+    } else {
+      log("Full Permission not allowed!");
     }
   }
 
   void _onConnect() async {
-    if (_device != null && _device.address != null) {
-      await bluetoothManager.connect(_device);
+    if (_device != null && _device?.address != null) {
+      await bluetoothManager.connect(_device!);
     } else {
       setState(() {
         tips = 'please select device';
@@ -111,7 +121,7 @@ class _MyHomePageState extends State<MyHomePage> {
       ),
       body: RefreshIndicator(
         onRefresh: () =>
-            bluetoothManager.startScan(timeout: Duration(seconds: 4)),
+            bluetoothManager.startScan(timeout: Duration(seconds: 8)),
         child: SingleChildScrollView(
           child: Column(
             children: <Widget>[
@@ -129,17 +139,17 @@ class _MyHomePageState extends State<MyHomePage> {
                 stream: bluetoothManager.scanResults,
                 initialData: [],
                 builder: (c, snapshot) => Column(
-                  children: snapshot.data
+                  children: (snapshot.data ?? [])
                       .map((d) => ListTile(
                             title: Text(d.name ?? ''),
-                            subtitle: Text(d.address),
+                            subtitle: Text(d.address ?? ""),
                             onTap: () async {
                               setState(() {
                                 _device = d;
                               });
                             },
                             trailing:
-                                _device != null && _device.address == d.address
+                                _device != null && _device?.address == d.address
                                     ? Icon(
                                         Icons.check,
                                         color: Colors.green,
@@ -157,18 +167,18 @@ class _MyHomePageState extends State<MyHomePage> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: <Widget>[
-                        OutlineButton(
+                        OutlinedButton(
                           child: Text('connect'),
                           onPressed: _connected ? null : _onConnect,
                         ),
                         SizedBox(width: 10.0),
-                        OutlineButton(
+                        OutlinedButton(
                           child: Text('disconnect'),
                           onPressed: _connected ? _onDisconnect : null,
                         ),
                       ],
                     ),
-                    OutlineButton(
+                    OutlinedButton(
                       child: Text('Send test data'),
                       onPressed: _connected ? _sendData : null,
                     ),
@@ -183,7 +193,7 @@ class _MyHomePageState extends State<MyHomePage> {
         stream: bluetoothManager.isScanning,
         initialData: false,
         builder: (c, snapshot) {
-          if (snapshot.data) {
+          if (snapshot.data!) {
             return FloatingActionButton(
               child: Icon(Icons.stop),
               onPressed: () => bluetoothManager.stopScan(),
@@ -191,9 +201,20 @@ class _MyHomePageState extends State<MyHomePage> {
             );
           } else {
             return FloatingActionButton(
-                child: Icon(Icons.search),
-                onPressed: () =>
-                    bluetoothManager.startScan(timeout: Duration(seconds: 4)));
+              child: Icon(Icons.search),
+              onPressed: () async {
+                final permissions = await [
+                  Permission.bluetoothConnect,
+                  Permission.bluetoothScan,
+                  Permission.location,
+                ].request();
+                if (permissions.values.every((e) => e.isGranted)) {
+                  bluetoothManager.startScan(timeout: Duration(seconds: 8));
+                } else {
+                  log("You don't have permission to search bluetooth devices");
+                }
+              },
+            );
           }
         },
       ),
